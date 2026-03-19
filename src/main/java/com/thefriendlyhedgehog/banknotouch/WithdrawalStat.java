@@ -1,4 +1,4 @@
-package com.banknotouch;
+package com.thefriendlyhedgehog.banknotouch;
 
 class WithdrawalStat
 {

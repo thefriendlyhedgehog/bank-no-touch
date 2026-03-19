@@ -1,4 +1,4 @@
-package com.banknotouch;
+package com.thefriendlyhedgehog.banknotouch;
 
 import java.time.Instant;
 import java.util.HashMap;

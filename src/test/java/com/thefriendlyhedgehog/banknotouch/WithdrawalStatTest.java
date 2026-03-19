@@ -1,4 +1,4 @@
-package com.banknotouch;
+package com.thefriendlyhedgehog.banknotouch;
 
 import org.junit.Assert;
 import org.junit.Test;

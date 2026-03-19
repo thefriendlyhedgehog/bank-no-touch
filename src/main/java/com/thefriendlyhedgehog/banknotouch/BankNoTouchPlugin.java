@@ -1,4 +1,4 @@
-package com.banknotouch;
+package com.thefriendlyhedgehog.banknotouch;
 
 import com.google.inject.Provides;
 import java.awt.BasicStroke;

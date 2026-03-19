@@ -9,7 +9,7 @@ repositories {
 }
 
 def runeLiteVersion = 'latest.release'
-def pluginMainClass = 'com.banknotouch.BankNoTouchPluginTest'
+def pluginMainClass = 'com.thefriendlyhedgehog.banknotouch.BankNoTouchPluginTest'
 
 dependencies {
     compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
@@ -19,7 +19,7 @@ dependencies {
     testImplementation group: 'net.runelite', name: 'jshell', version: runeLiteVersion
 }
 
-group = 'com.banknotouch'
+group = 'com.thefriendlyhedgehog.banknotouch'
 version = '0.1.0'
 
 java {

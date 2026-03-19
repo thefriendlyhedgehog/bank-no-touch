@@ -1,4 +1,4 @@
-package com.banknotouch;
+package com.thefriendlyhedgehog.banknotouch;
 
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
