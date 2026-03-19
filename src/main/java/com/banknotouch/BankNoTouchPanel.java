@@ -5,9 +5,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.GridLayout;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -35,11 +32,7 @@ import net.runelite.client.util.Text;
 @Singleton
 class BankNoTouchPanel extends PluginPanel
 {
-	private static final DateTimeFormatter DATE_FORMAT =
-		DateTimeFormatter.ofPattern("yyyy-MM-dd")
-			.withZone(ZoneId.systemDefault());
-
-	// GP colour: a warm gold tone that reads as money
+	/** Gold tone matching the in-game GP colour. */
 	private static final Color GP_COLOR = new Color(255, 200, 50);
 
 	private final BankNoTouchStore store;
@@ -81,7 +74,7 @@ class BankNoTouchPanel extends PluginPanel
 		summaryLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		header.add(summaryLabel);
 
-		// Metric cards: "Items to Sell" and "Potential GP"
+		// Metric cards
 		JPanel metricsPanel = new JPanel(new GridLayout(1, 2, 8, 0));
 		metricsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		metricsPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -131,7 +124,6 @@ class BankNoTouchPanel extends PluginPanel
 
 		Map<Integer, Integer> bankSnapshot = store.loadBankSnapshot();
 
-		// Build view objects, applying equipment filter and rarely-used threshold
 		List<BankItemView> sellItems = bankSnapshot.entrySet().stream()
 			.filter(e -> e.getValue() > 0)
 			.map(e -> toBankItemView(e.getKey(), e.getValue()))
@@ -147,7 +139,7 @@ class BankNoTouchPanel extends PluginPanel
 		// Update header metrics
 		boolean hasData = !bankSnapshot.isEmpty();
 		summaryLabel.setText(hasData
-			? "Items rarely withdrawn — sell for:"
+			? "Items rarely withdrawn \u2014 sell for:"
 			: "Open your bank once to refresh memory");
 		itemCountLabel.setText(String.valueOf(sellItems.size()));
 		potentialGpLabel.setText(formatGp(grandTotalGp));
@@ -169,7 +161,7 @@ class BankNoTouchPanel extends PluginPanel
 			for (BankItemView item : sellItems)
 			{
 				listPanel.add(createItemRow(item));
-				listPanel.add(createSpacer(6));
+				listPanel.add(createSpacer(4));
 			}
 		}
 
@@ -186,9 +178,11 @@ class BankNoTouchPanel extends PluginPanel
 		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		row.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.BORDER_COLOR),
-			BorderFactory.createEmptyBorder(8, 6, 8, 6)
+			BorderFactory.createEmptyBorder(6, 6, 6, 6)
 		));
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
+		// Let the row size itself naturally rather than a fixed max height,
+		// so text never gets clipped at any DPI.
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
 
 		// Item icon
 		JLabel iconLabel = new JLabel();
@@ -210,20 +204,26 @@ class BankNoTouchPanel extends PluginPanel
 
 		String withdrawalText = item.getStat().getTimesWithdrawn() == 0
 			? "Never withdrawn"
-			: item.getStat().getTimesWithdrawn() + "× withdrawn";
-		JLabel statsLabel = new JLabel(withdrawalText + "  ·  " + item.getBankQuantity() + " in bank");
+			: item.getStat().getTimesWithdrawn() + "\u00d7 withdrawn";
+		JLabel statsLabel = new JLabel(withdrawalText + "  \u00b7  " + item.getBankQuantity() + " in bank");
 		statsLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		textPanel.add(statsLabel);
 
-		// Unit price line
-		JLabel priceLabel = new JLabel(formatGp(item.getUnitGpValue()) + " ea");
+		// Unit price line (show "Untradeable" for items with no GE value)
+		String priceText = item.getUnitGpValue() > 0
+			? formatGp(item.getUnitGpValue()) + " ea"
+			: "Untradeable";
+		JLabel priceLabel = new JLabel(priceText);
 		priceLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 		textPanel.add(priceLabel);
 
 		row.add(textPanel, BorderLayout.CENTER);
 
 		// GP value pill (total stack value)
-		JLabel gpPill = new JLabel(formatGp(item.getTotalGpValue()));
+		String gpText = item.getTotalGpValue() > 0
+			? formatGp(item.getTotalGpValue())
+			: "N/A";
+		JLabel gpPill = new JLabel(gpText);
 		gpPill.setHorizontalAlignment(SwingConstants.CENTER);
 		gpPill.setForeground(item.getTotalGpValue() > 0 ? GP_COLOR : ColorScheme.MEDIUM_GRAY_COLOR);
 		gpPill.setFont(FontManager.getRunescapeBoldFont());
@@ -285,11 +285,15 @@ class BankNoTouchPanel extends PluginPanel
 	}
 
 	/**
-	 * Formats a GP value with K / M suffix for readability.
-	 * e.g. 1_250_000 → "1.2M",  45_000 → "45K",  800 → "800"
+	 * Formats a GP value with K / M / B suffix.
+	 * e.g. 1_250_000 -> "1.2M",  45_000 -> "45.0K",  800 -> "800"
 	 */
-	private static String formatGp(long gp)
+	static String formatGp(long gp)
 	{
+		if (gp >= 1_000_000_000)
+		{
+			return String.format("%.1fB", gp / 1_000_000_000.0);
+		}
 		if (gp >= 1_000_000)
 		{
 			return String.format("%.1fM", gp / 1_000_000.0);
@@ -332,7 +336,7 @@ class BankNoTouchPanel extends PluginPanel
 
 	private static JLabel buildEmptyLabel(String text)
 	{
-		JLabel label = new JLabel("<html><body style='width:160px'>" + text + "</body></html>");
+		JLabel label = new JLabel("<html><body style='width:185px'>" + text + "</body></html>");
 		label.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createMatteBorder(0, 0, 1, 0, ColorScheme.BORDER_COLOR),
 			BorderFactory.createEmptyBorder(14, 12, 14, 12)
@@ -361,13 +365,13 @@ class BankNoTouchPanel extends PluginPanel
 
 	// ── View model ──────────────────────────────────────────────
 
-	private static final class BankItemView
+	static final class BankItemView
 	{
 		/**
 		 * Sort: highest total GP value first, then never-withdrawn before withdrawn,
 		 * then alphabetical by name as a tiebreaker.
 		 */
-		private static final Comparator<BankItemView> COMPARATOR =
+		static final Comparator<BankItemView> COMPARATOR =
 			Comparator.comparingLong(BankItemView::getTotalGpValue).reversed()
 				.thenComparing(item -> item.getStat().getTimesWithdrawn())
 				.thenComparing(BankItemView::getName, String.CASE_INSENSITIVE_ORDER);
@@ -380,7 +384,7 @@ class BankNoTouchPanel extends PluginPanel
 		private final long unitGpValue;
 		private final long totalGpValue;
 
-		private BankItemView(int itemId, int bankQuantity, String name,
+		BankItemView(int itemId, int bankQuantity, String name,
 			ItemComposition itemComposition, WithdrawalStat stat,
 			long unitGpValue, long totalGpValue)
 		{
@@ -393,12 +397,12 @@ class BankNoTouchPanel extends PluginPanel
 			this.totalGpValue = totalGpValue;
 		}
 
-		private int getItemId() { return itemId; }
-		private int getBankQuantity() { return bankQuantity; }
-		private String getName() { return name; }
-		private ItemComposition getItemComposition() { return itemComposition; }
-		private WithdrawalStat getStat() { return stat; }
-		private long getUnitGpValue() { return unitGpValue; }
-		private long getTotalGpValue() { return totalGpValue; }
+		int getItemId() { return itemId; }
+		int getBankQuantity() { return bankQuantity; }
+		String getName() { return name; }
+		ItemComposition getItemComposition() { return itemComposition; }
+		WithdrawalStat getStat() { return stat; }
+		long getUnitGpValue() { return unitGpValue; }
+		long getTotalGpValue() { return totalGpValue; }
 	}
 }

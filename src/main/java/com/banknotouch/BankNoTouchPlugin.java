@@ -35,8 +35,8 @@ import net.runelite.client.util.Text;
 
 @PluginDescriptor(
     name = "Bank No Touch",
-    description = "Tracks bank withdrawals and surfaces rarely-used items",
-    tags = {"bank", "tracking", "inventory", "usage"}
+    description = "Tracks bank withdrawals and surfaces rarely-used items with GE sell-off values",
+    tags = {"bank", "tracking", "inventory", "usage", "gp", "sell"}
 )
 public class BankNoTouchPlugin extends Plugin
 {
@@ -110,18 +110,22 @@ public class BankNoTouchPlugin extends Plugin
 
         if (!bankOpen && currentlyOpen)
         {
+            // Bank just opened — take the initial snapshot
             bankOpen = true;
-            syncBankSnapshot();
+            captureSnapshot();
+            return;
         }
 
         if (bankOpen && currentlyOpen)
         {
-            syncBankSnapshot();
+            // Bank still open — detect withdrawals only (no persistence, no panel rebuild)
+            detectWithdrawals();
             return;
         }
 
-        if (bankOpen)
+        if (bankOpen && !currentlyOpen)
         {
+            // Bank just closed — persist snapshot, refresh panel once
             bankOpen = false;
             store.saveBankSnapshot(bankSnapshot);
             bankSnapshot.clear();
@@ -133,7 +137,25 @@ public class BankNoTouchPlugin extends Plugin
         }
     }
 
-    private void syncBankSnapshot()
+    /**
+     * Takes the initial snapshot when the bank opens.
+     */
+    private void captureSnapshot()
+    {
+        bankSnapshot.clear();
+        ItemContainer bank = client.getItemContainer(InventoryID.BANK);
+        if (bank == null)
+        {
+            return;
+        }
+        bankSnapshot.putAll(toCountMap(bank));
+    }
+
+    /**
+     * Diffs the current bank against the in-memory snapshot to record withdrawals.
+     * Only updates the in-memory map — does NOT persist to config or refresh the panel.
+     */
+    private void detectWithdrawals()
     {
         ItemContainer bank = client.getItemContainer(InventoryID.BANK);
         if (bank == null)
@@ -142,15 +164,10 @@ public class BankNoTouchPlugin extends Plugin
         }
 
         Map<Integer, Integer> current = toCountMap(bank);
-        if (bankSnapshot.isEmpty())
-        {
-            bankSnapshot.putAll(current);
-            store.saveBankSnapshot(current);
-            panel.refresh();
-            return;
-        }
 
-        current.forEach((itemId, qty) -> {
+        // Detect quantity decreases (item withdrawn)
+        current.forEach((itemId, qty) ->
+        {
             int previous = bankSnapshot.getOrDefault(itemId, 0);
             if (qty < previous)
             {
@@ -158,17 +175,18 @@ public class BankNoTouchPlugin extends Plugin
             }
         });
 
-        bankSnapshot.forEach((itemId, previous) -> {
+        // Detect items that disappeared entirely (fully withdrawn)
+        bankSnapshot.forEach((itemId, previous) ->
+        {
             if (!current.containsKey(itemId) && previous > 0)
             {
                 recordWithdrawalIfTracked(itemId, previous);
             }
         });
 
+        // Replace the in-memory snapshot with current state
         bankSnapshot.clear();
         bankSnapshot.putAll(current);
-        store.saveBankSnapshot(current);
-        panel.refresh();
     }
 
     private Map<Integer, Integer> toCountMap(ItemContainer container)
