@@ -1,6 +1,11 @@
 package com.banknotouch;
 
 import com.google.inject.Provides;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -12,8 +17,8 @@ import net.runelite.api.Client;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.ItemComposition;
 import net.runelite.api.events.GameTick;
-import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.widgets.ComponentID;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -23,6 +28,9 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.Text;
 
 @PluginDescriptor(
@@ -52,8 +60,15 @@ public class BankNoTouchPlugin extends Plugin
     @Inject
     private ChatMessageManager chatMessageManager;
 
+    @Inject
+    private ClientToolbar clientToolbar;
+
+    @Inject
+    private BankNoTouchPanel panel;
+
     private final Map<Integer, Integer> bankSnapshot = new HashMap<>();
     private boolean bankOpen;
+    private NavigationButton navigationButton;
 
     @Provides
     BankNoTouchConfig getConfig(ConfigManager configManager)
@@ -66,6 +81,14 @@ public class BankNoTouchPlugin extends Plugin
     {
         bankSnapshot.clear();
         bankOpen = false;
+        navigationButton = NavigationButton.builder()
+            .tooltip("Bank No Touch")
+            .icon(createSidebarIcon())
+            .panel(panel)
+            .priority(5)
+            .build();
+        clientToolbar.addNavigation(navigationButton);
+        panel.refresh();
     }
 
     @Override
@@ -73,6 +96,11 @@ public class BankNoTouchPlugin extends Plugin
     {
         bankSnapshot.clear();
         bankOpen = false;
+        if (navigationButton != null)
+        {
+            clientToolbar.removeNavigation(navigationButton);
+            navigationButton = null;
+        }
     }
 
     @Subscribe
@@ -83,30 +111,31 @@ public class BankNoTouchPlugin extends Plugin
         if (!bankOpen && currentlyOpen)
         {
             bankOpen = true;
-            initializeSnapshotFromBank();
+            syncBankSnapshot();
+        }
+
+        if (bankOpen && currentlyOpen)
+        {
+            syncBankSnapshot();
             return;
         }
 
-        if (bankOpen && !currentlyOpen)
+        if (bankOpen)
         {
             bankOpen = false;
+            store.saveBankSnapshot(bankSnapshot);
             bankSnapshot.clear();
             if (config.reportOnClose())
             {
                 publishLeastUsedReport();
             }
+            panel.refresh();
         }
     }
 
-    @Subscribe
-    public void onItemContainerChanged(ItemContainerChanged event)
+    private void syncBankSnapshot()
     {
-        if (!bankOpen || event.getContainerId() != InventoryID.BANK.getId())
-        {
-            return;
-        }
-
-        ItemContainer bank = event.getItemContainer();
+        ItemContainer bank = client.getItemContainer(InventoryID.BANK);
         if (bank == null)
         {
             return;
@@ -116,6 +145,8 @@ public class BankNoTouchPlugin extends Plugin
         if (bankSnapshot.isEmpty())
         {
             bankSnapshot.putAll(current);
+            store.saveBankSnapshot(current);
+            panel.refresh();
             return;
         }
 
@@ -123,31 +154,21 @@ public class BankNoTouchPlugin extends Plugin
             int previous = bankSnapshot.getOrDefault(itemId, 0);
             if (qty < previous)
             {
-                store.recordWithdrawal(itemId, previous - qty);
+                recordWithdrawalIfTracked(itemId, previous - qty);
             }
         });
 
         bankSnapshot.forEach((itemId, previous) -> {
             if (!current.containsKey(itemId) && previous > 0)
             {
-                store.recordWithdrawal(itemId, previous);
+                recordWithdrawalIfTracked(itemId, previous);
             }
         });
 
         bankSnapshot.clear();
         bankSnapshot.putAll(current);
-    }
-
-    private void initializeSnapshotFromBank()
-    {
-        bankSnapshot.clear();
-        ItemContainer bank = client.getItemContainer(InventoryID.BANK);
-        if (bank == null)
-        {
-            return;
-        }
-
-        bankSnapshot.putAll(toCountMap(bank));
+        store.saveBankSnapshot(current);
+        panel.refresh();
     }
 
     private Map<Integer, Integer> toCountMap(ItemContainer container)
@@ -166,29 +187,31 @@ public class BankNoTouchPlugin extends Plugin
 
     private void publishLeastUsedReport()
     {
-        List<Map.Entry<Integer, WithdrawalStat>> leastUsed = store.loadAll().entrySet().stream()
-            .filter(e -> e.getValue().getTimesWithdrawn() > 0)
+        Map<Integer, Integer> bankMemory = store.loadBankSnapshot();
+        List<Map.Entry<Integer, WithdrawalStat>> leastUsed = bankMemory.keySet().stream()
+            .filter(itemId -> !config.onlyEquipment() || isEquipment(itemManager.getItemComposition(itemId)))
+            .map(itemId -> Map.entry(itemId, store.get(itemId)))
             .sorted(LEAST_USED_COMPARATOR)
             .limit(config.reportItemCount())
             .collect(Collectors.toList());
 
         if (leastUsed.isEmpty())
         {
-            sendMessage("Bank No Touch: No withdrawal data yet.");
+            sendMessage("Bank No Touch: Open your bank once to cache items.");
             return;
         }
 
-        String summary = leastUsed.stream()
-            .map(e -> formatEntry(e.getKey(), e.getValue()))
-            .collect(Collectors.joining(", "));
-
-        sendMessage("Bank No Touch (least used): " + summary);
+        sendMessage("Bank No Touch least used in current bank:");
+        for (Map.Entry<Integer, WithdrawalStat> entry : leastUsed)
+        {
+            sendMessage(formatEntry(entry.getKey(), entry.getValue()));
+        }
     }
 
     private String formatEntry(int itemId, WithdrawalStat stat)
     {
         String name = Text.removeTags(itemManager.getItemComposition(itemId).getName());
-        return name + " [times=" + stat.getTimesWithdrawn() + ", qty=" + stat.getQuantityWithdrawn() + "]";
+        return name + " - withdrawals " + stat.getTimesWithdrawn();
     }
 
     private void sendMessage(String message)
@@ -201,5 +224,67 @@ public class BankNoTouchPlugin extends Plugin
             .type(ChatMessageType.GAMEMESSAGE)
             .runeLiteFormattedMessage(formatted)
             .build());
+    }
+
+    private void recordWithdrawalIfTracked(int itemId, int quantity)
+    {
+        if (quantity <= 0)
+        {
+            return;
+        }
+
+        if (config.onlyEquipment() && !isEquipment(itemManager.getItemComposition(itemId)))
+        {
+            return;
+        }
+
+        store.recordWithdrawal(itemId, quantity);
+    }
+
+    private static boolean isEquipment(ItemComposition itemComposition)
+    {
+        String[] actions = itemComposition.getInventoryActions();
+        if (actions == null)
+        {
+            return false;
+        }
+
+        for (String action : actions)
+        {
+            if (action == null)
+            {
+                continue;
+            }
+
+            String normalized = action.toLowerCase();
+            if (normalized.equals("wear")
+                || normalized.equals("wield")
+                || normalized.equals("equip")
+                || normalized.equals("hold"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private BufferedImage createSidebarIcon()
+    {
+        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        graphics.setColor(new Color(232, 232, 232));
+        graphics.fillRoundRect(2, 2, 12, 12, 3, 3);
+        graphics.setColor(ColorScheme.DARK_GRAY_COLOR);
+        graphics.setStroke(new BasicStroke(1.5f));
+        graphics.drawRoundRect(2, 2, 12, 12, 3, 3);
+
+        graphics.setColor(new Color(255, 152, 31));
+        graphics.fillRect(4, 5, 6, 2);
+        graphics.fillRect(8, 5, 2, 6);
+        graphics.fillPolygon(new int[]{8, 12, 8}, new int[]{11, 8, 5}, 3);
+        graphics.dispose();
+        return image;
     }
 }

@@ -19,15 +19,16 @@ Tracks bank withdrawals and reports your least-used withdrawn items.
 
 ## Build and test
 - Run `./gradlew clean build`
+- Run `./gradlew run` to launch a local RuneLite dev client with this plugin loaded
 - Unit tests currently cover withdrawal stat logic and serialization.
 
 ## Install checklist (local RuneLite testing)
-1. Build the plugin jar: `./gradlew clean build`
-2. Confirm artifact exists: `build/libs/bank-no-touch-0.1.0.jar`
-3. In RuneLite, enable side-loading external plugins if your setup requires it.
-4. Install/run the plugin from your external plugin dev flow (Plugin Hub dev or local side-load process).
-5. Open bank, withdraw items, close bank, and verify the "least used" report appears in chat.
-6. Adjust plugin config (`Show report when bank closes`, item count) and retest.
+1. Launch the local dev client: `./gradlew run`
+2. In the RuneLite plugin list, enable `Bank No Touch`
+3. Open bank, withdraw items, close bank, and verify the "least used" report appears in chat
+4. Adjust plugin config (`Show report when bank closes`, item count) and retest
+5. If you want a distributable jar instead, run `./gradlew clean build`
+6. Confirm artifact exists: `build/libs/bank-no-touch-0.1.0.jar`
 
 ## Notes
 - `runeLiteVersion` is set to `latest.release` in `build.gradle` to follow Plugin Hub guidance.
